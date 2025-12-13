@@ -1,12 +1,28 @@
-
 {
   "name": "brand-trust-checker-backend",
   "version": "1.0.0",
+  "description": "Advanced Brand Trust Checker API by Persuadify",
+  "main": "server.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "basic-auth": "^2.0.1",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.0.0",
+    "node-fetch": "^2.6.9",
+    "nodemailer": "^6.9.11",
+    "stripe": "^14.21.0",
+    "whois-json": "^2.0.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
   }
 }
+
