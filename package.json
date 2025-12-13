@@ -1,15 +1,12 @@
+
 {
-  "name": "brand-trust-checker-saas",
-  "version": "2.0.0",
-  "description": "Brand Trust Checker SaaS by Persuadify",
-  "main": "server.js",
+  "name": "brand-trust-checker-backend",
+  "version": "1.0.0",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12",
     "express": "^4.18.2",
-    "nodemailer": "^6.9.8"
+    "cors": "^2.8.5"
   }
 }
