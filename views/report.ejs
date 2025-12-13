@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Trust Report</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="container">
+<% if (error) { %>
+  <p><%= error %></p>
+<% } else { %>
+  <h2>Trust Score: <%= total %>/100</h2>
+  <p><%= insight %></p>
+
+  <ul>
+    <li>Website Credibility: <%= score.website %></li>
+    <li>Messaging Clarity: <%= score.messaging %></li>
+    <li>Online Presence: <%= score.presence %></li>
+    <li>Social Proof: <%= score.social %></li>
+    <li>Authority Signals: <%= score.authority %></li>
+  </ul>
+
+  <p><strong>Next step:</strong> Improve your trust score with Persuadify</p>
+<% } %>
+</div>
+</body>
+</html>
