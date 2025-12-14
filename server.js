@@ -24,7 +24,7 @@ app.get("/analyze", async (req, res) => {
 
     try {
       const whoisRes = await fetch(
-        `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${process.env.at_hCoTxkW6zMlFpsOTDp1AiZM1pblew }&domainName=${domain}&outputFormat=JSON`
+        `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${process.env.at_hCoTxkW6zMlFpsOTDp1AiZM1pblew}&domainName=${domain}&outputFormat=JSON`
       );
       const whois = await whoisRes.json();
 
