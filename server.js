@@ -1,153 +1,114 @@
 import express from "express";
-import cors from "cors";
 import fetch from "node-fetch";
+import cors from "cors";
 import dotenv from "dotenv";
 import https from "https";
-import tls from "tls";
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-
 app.use(cors());
 app.use(express.json());
 
-/* ------------------ HEALTH CHECK ------------------ */
-app.get("/", (req, res) => {
-  res.json({ status: "Brand Trust Checker Backend Running ✅" });
-});
-
-/* ------------------ ANALYZE ROUTE ------------------ */
-app.post("/analyze", async (req, res) => {
+app.get("/analyze", async (req, res) => {
   try {
-    const { companyName, website, phone, email } = req.body;
+    const url = req.query.url;
+    if (!url) return res.status(400).json({ error: "URL required" });
 
-    if (!companyName) {
-      return res.status(400).json({ error: "Company name required" });
-    }
+    const domain = new URL(url).hostname;
 
-    const domain = website
-      ? website.replace(/^https?:\/\//, "").replace(/\/$/, "")
-      : null;
+    // WHOIS
+    let businessSince = "NA";
+    let websiteAge = "NA";
+    let domainCountry = "NA";
 
-    /* ------------------ WEBSITE AGE (WHOIS) ------------------ */
-    let websiteAge = "Unknown";
-    if (domain) {
-      try {
-        const whoisRes = await fetch(
-          `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${process.env.at_hCoTxkW6zMlFpsOTDp1AiZM1pblew}&domainName=${domain}&outputFormat=JSON`
-        );
-        const whoisData = await whoisRes.json();
-        websiteAge =
-          whoisData?.WhoisRecord?.createdDate || "Not available";
-      } catch {
-        websiteAge = "Unavailable";
+    try {
+      const whoisRes = await fetch(
+        `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${process.env.at_hCoTxkW6zMlFpsOTDp1AiZM1pblew }&domainName=${domain}&outputFormat=JSON`
+      );
+      const whois = await whoisRes.json();
+
+      const created = whois?.WhoisRecord?.createdDate;
+      domainCountry = whois?.WhoisRecord?.registrant?.country || "NA";
+
+      if (created) {
+        businessSince = created.split("T")[0];
+        const years =
+          new Date().getFullYear() - new Date(created).getFullYear();
+        websiteAge = `${years} years`;
       }
-    }
+    } catch {}
 
-    /* ------------------ SSL CHECK ------------------ */
-    let sslSecure = false;
-    if (domain) {
-      try {
-        await new Promise((resolve, reject) => {
-          const socket = tls.connect(
-            443,
-            domain,
-            { servername: domain },
-            () => {
-              sslSecure = true;
-              socket.end();
-              resolve();
-            }
-          );
-          socket.on("error", reject);
-        });
-      } catch {
-        sslSecure = false;
+    // HTTPS
+    const websiteSecure = url.startsWith("https");
+
+    // PageSpeed
+    let seoStatus = "NA";
+    try {
+      const speedRes = await fetch(
+        `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${url}&strategy=mobile&key=${process.env.AIzaSyBttGXB3PzqJsHriWj_qNLmnXJTIpBivDw}`
+      );
+      const speed = await speedRes.json();
+      const score =
+        speed?.lighthouseResult?.categories?.performance?.score;
+      if (score !== undefined) {
+        seoStatus = score >= 0.7 ? "Good" : "Needs Improvement";
       }
-    }
+    } catch {}
 
-    /* ------------------ PAGE SPEED ------------------ */
-    let pageSpeedScore = "N/A";
-    if (domain) {
-      try {
-        const psRes = await fetch(
-          `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=https://${domain}&strategy=mobile&key=${process.env.AIzaSyBttGXB3PzqJsHriWj_qNLmnXJTIpBivDw}`
-        );
-        const psData = await psRes.json();
-        pageSpeedScore = Math.round(
-          psData?.lighthouseResult?.categories?.performance?.score * 100
-        );
-      } catch {
-        pageSpeedScore = "Unavailable";
-      }
-    }
-
-    /* ------------------ SAFE BROWSING ------------------ */
+    // Safe Browsing
     let safeBrowsing = "Safe";
-    if (domain) {
-      try {
-        const sbRes = await fetch(
-          `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${process.env.AIzaSyBttGXB3PzqJsHriWj_qNLmnXJTIpBivDw}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              client: { clientId: "brand-trust-checker", clientVersion: "1.0" },
-              threatInfo: {
-                threatTypes: ["MALWARE", "SOCIAL_ENGINEERING"],
-                platformTypes: ["ANY_PLATFORM"],
-                threatEntryTypes: ["URL"],
-                threatEntries: [{ url: `https://${domain}` }]
-              }
-            })
-          }
-        );
-        const sbData = await sbRes.json();
-        if (sbData?.matches) safeBrowsing = "Unsafe";
-      } catch {
-        safeBrowsing = "Unknown";
-      }
-    }
+    try {
+      const sbRes = await fetch(
+        `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${process.env.AIzaSyBttGXB3PzqJsHriWj_qNLmnXJTIpBivDw}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client: { clientId: "persuadify", clientVersion: "1.0" },
+            threatInfo: {
+              threatTypes: ["MALWARE", "SOCIAL_ENGINEERING"],
+              platformTypes: ["ANY_PLATFORM"],
+              threatEntryTypes: ["URL"],
+              threatEntries: [{ url }]
+            }
+          })
+        }
+      );
+      const sb = await sbRes.json();
+      if (sb.matches) safeBrowsing = "Unsafe";
+    } catch {}
 
-    /* ------------------ FINAL SCORE ------------------ */
-    let score = 0;
-    if (sslSecure) score += 25;
-    if (pageSpeedScore !== "N/A" && pageSpeedScore >= 70) score += 25;
-    if (safeBrowsing === "Safe") score += 25;
-    if (websiteAge !== "Unknown") score += 25;
+    // Final Score
+    let score = 50;
+    if (websiteSecure) score += 10;
+    if (seoStatus === "Good") score += 10;
+    if (safeBrowsing === "Safe") score += 6;
 
-    /* ------------------ RESPONSE ------------------ */
     res.json({
-      companyName,
-      website,
-      results: {
-        businessSince: websiteAge,
-        websiteAge,
-        sslSecure,
-        pageSpeedScore,
-        safeBrowsing,
-        googleBusinessStatus: "Demo (Billing API required)",
-        addressVerification: "Demo",
-        onlinePresence: ["Google", "Facebook", "LinkedIn (demo)"],
-        otherWebsites: domain ? [`https://${domain}`] : [],
-        improvements: [
-          "Improve page speed",
-          "Add Google Business Profile",
-          "Increase online reviews"
-        ],
-        competitors: ["Competitor A", "Competitor B", "Competitor C"],
-        finalScore: score
-      }
+      businessSince,
+      websiteAge,
+      domainCountry,
+      websiteSecure,
+      seoStatus,
+      googleMyBusiness: "NA",
+      addressVerification: "NA",
+      phoneUsage: "NA",
+      onlinePresence: "NA",
+      otherWebsites: "NA",
+      improvements: [
+        "Improve page speed",
+        "Add business listings",
+        "Strengthen SEO content"
+      ],
+      competitors: "NA",
+      finalScore: score
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Analysis failed" });
   }
 });
 
-/* ------------------ START SERVER ------------------ */
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(process.env.PORT || 5000, () =>
+  console.log("Brand Trust Checker backend running")
+);
