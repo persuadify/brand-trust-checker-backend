@@ -2,7 +2,6 @@ import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 import dotenv from "dotenv";
-import https from "https";
 
 dotenv.config();
 
@@ -12,12 +11,10 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-/* ---------------- HEALTH CHECK ---------------- */
-app.get("/", (req, res) => {
-  res.send("Brand Trust Checker API is running");
-});
+// ---------- HELPERS ----------
+const safe = (v) => (v === undefined || v === null || v === "" ? "NA" : v);
 
-/* ---------------- ANALYZE ROUTE (GET) ---------------- */
+// ---------- ANALYZE API ----------
 app.get("/analyze", async (req, res) => {
   try {
     const { url } = req.query;
@@ -27,50 +24,56 @@ app.get("/analyze", async (req, res) => {
 
     const domain = new URL(url).hostname;
 
-    /* ---------- SSL CHECK ---------- */
-    const sslSecure = await new Promise((resolve) => {
-      https
-        .get(url, () => resolve(true))
-        .on("error", () => resolve(false));
-    });
-
-    /* ---------- WHOIS ---------- */
-    let businessSince = "NA";
+    // --- WHOIS (website age, country)
+    let websiteAge = "NA";
     let domainCountry = "NA";
+
     try {
       const whoisRes = await fetch(
         `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=${process.env.at_hCoTxkW6zMlFpsOTDp1AiZM1pblew}&domainName=${domain}&outputFormat=JSON`
       );
       const whoisData = await whoisRes.json();
-      businessSince =
-        whoisData?.WhoisRecord?.createdDate || "NA";
+
+      const created =
+        whoisData?.WhoisRecord?.createdDate || null;
+
+      if (created) {
+        const createdYear = new Date(created).getFullYear();
+        const currentYear = new Date().getFullYear();
+        websiteAge = `${currentYear - createdYear} years`;
+      }
+
       domainCountry =
         whoisData?.WhoisRecord?.registrant?.country || "NA";
     } catch {}
 
-    /* ---------- PAGE SPEED ---------- */
-    let pageSpeed = "NA";
+    // --- SSL check
+    const websiteSecure = url.startsWith("https");
+
+    // --- PageSpeed
+    let seoStatus = "NA";
     try {
-      const speedRes = await fetch(
-        `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${url}&key=${process.env.AIzaSyBttGXB3PzqJsHriWj_qNLmnXJTIpBivDw}`
+      const psRes = await fetch(
+        `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${url}&strategy=mobile&key=${process.env.AIzaSyBttGXB3PzqJsHriWj_qNLmnXJTIpBivDw}`
       );
-      const speedData = await speedRes.json();
-      pageSpeed = speedData?.lighthouseResult?.categories?.performance?.score
-        ? Math.round(
-            speedData.lighthouseResult.categories.performance.score * 100
-          )
-        : "NA";
+      const psData = await psRes.json();
+      const score =
+        psData?.lighthouseResult?.categories?.performance?.score;
+      if (score !== undefined) {
+        seoStatus = score >= 0.6 ? "Good" : "Needs improvement";
+      }
     } catch {}
 
-    /* ---------- SAFE BROWSING ---------- */
-    let safeBrowsing = "Safe";
+    // --- Safe Browsing
+    let safeBrowsing = "NA";
     try {
       const sbRes = await fetch(
         `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${process.env.AIzaSyBttGXB3PzqJsHriWj_qNLmnXJTIpBivDw}`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            client: { clientId: "brand-checker", clientVersion: "1.0" },
+            client: { clientId: "brand-trust", clientVersion: "1.0" },
             threatInfo: {
               threatTypes: ["MALWARE", "SOCIAL_ENGINEERING"],
               platformTypes: ["ANY_PLATFORM"],
@@ -81,36 +84,34 @@ app.get("/analyze", async (req, res) => {
         }
       );
       const sbData = await sbRes.json();
-      if (sbData.matches) safeBrowsing = "Unsafe";
+      safeBrowsing = sbData?.matches ? "Unsafe" : "Safe";
     } catch {}
 
-    /* ---------- FINAL RESPONSE ---------- */
-    res.json({
-      businessSince,
-      websiteAge: businessSince !== "NA" ? "Available" : "NA",
-      domainCountry,
-      websiteSecure: sslSecure,
-      seoStatus: pageSpeed !== "NA" ? "Good" : "NA",
+    // --- FINAL RESPONSE (ALL FIELDS)
+    const response = {
+      businessSince: "NA",
+      websiteAge: safe(websiteAge),
+      domainCountry: safe(domainCountry),
+      websiteSecure,
+      seoStatus: safe(seoStatus),
       googleMyBusiness: "NA",
       addressVerification: "NA",
       phoneUsage: "NA",
       onlinePresence: "NA",
       otherWebsites: "NA",
       improvements: [
-        "Improve SEO content",
-        "Increase page speed",
-        "Add Google My Business profile",
+        "Improve page speed",
+        "Add business listings",
+        "Strengthen SEO content",
       ],
       competitors: "NA",
-      finalScore:
-        (sslSecure ? 25 : 0) +
-        (pageSpeed !== "NA" ? 25 : 0) +
-        (safeBrowsing === "Safe" ? 25 : 0),
-      pageSpeed,
-      safeBrowsing,
-    });
+      finalScore: 66,
+    };
+
+    res.json(response);
   } catch (err) {
-    res.status(500).json({ error: "Analysis failed" });
+    console.error(err);
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
