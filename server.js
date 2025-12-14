@@ -1,153 +1,120 @@
 import express from "express";
+import fetch from "node-fetch";
 import cors from "cors";
-import axios from "axios";
 import dotenv from "dotenv";
-import https from "https";
 
 dotenv.config();
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-/* ---------------- SSL CHECK ---------------- */
-async function checkSSL(url) {
-  try {
-    return new Promise((resolve) => {
-      const req = https.get(url, () => resolve("Secure (HTTPS Enabled)"));
-      req.on("error", () => resolve("Not Secure"));
-    });
-  } catch {
-    return "Not Secure";
-  }
-}
-
-/* ---------------- WHOIS ---------------- */
-async function getWhois(domain) {
-  try {
-    const res = await axios.get(
-      `https://www.whoisxmlapi.com/whoisserver/WhoisService`,
-      {
-        params: {
-          apiKey: process.env.WHOIS_API_KEY,
-          domainName: domain,
-          outputFormat: "JSON"
-        }
-      }
-    );
-
-    const record = res.data.WhoisRecord;
-    return {
-      created: record.createdDate || null
-    };
-  } catch {
-    return { created: null };
-  }
-}
-
-/* ---------------- PAGE SPEED SEO ---------------- */
-async function getSEO(url) {
-  try {
-    const res = await axios.get(
-      `https://www.googleapis.com/pagespeedonline/v5/runPagespeed`,
-      {
-        params: {
-          url,
-          strategy: "mobile",
-          key: process.env.GOOGLE_API_KEY
-        }
-      }
-    );
-
-    const score =
-      res.data.lighthouseResult.categories.performance.score * 100;
-
-    return `${Math.round(score)}/100`;
-  } catch {
-    return "SEO data unavailable";
-  }
-}
-
-/* ---------------- SAFE BROWSING ---------------- */
-async function checkSafeBrowsing(url) {
-  try {
-    const res = await axios.post(
-      `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${process.env.SAFE_BROWSING_KEY}`,
-      {
-        client: {
-          clientId: "brand-trust-checker",
-          clientVersion: "1.0"
-        },
-        threatInfo: {
-          threatTypes: ["MALWARE", "SOCIAL_ENGINEERING"],
-          platformTypes: ["ANY_PLATFORM"],
-          threatEntryTypes: ["URL"],
-          threatEntries: [{ url }]
-        }
-      }
-    );
-
-    return res.data.matches ? "Unsafe" : "Safe";
-  } catch {
-    return "Unknown";
-  }
-}
-
-/* ---------------- TRUST SCORE ---------------- */
-function calculateScore({ ssl, seo }) {
-  let score = 40;
-
-  if (ssl.includes("Secure")) score += 20;
-  if (seo.includes("/")) score += parseInt(seo) / 5;
-
-  return Math.min(100, Math.round(score));
-}
-
-/* ---------------- MAIN API ---------------- */
-app.post("/analyze", async (req, res) => {
-  const { companyName, website } = req.body;
-
-  let domain = website
-    ? website.replace("https://", "").replace("http://", "").split("/")[0]
-    : null;
-
-  const whois = domain ? await getWhois(domain) : {};
-  const ssl = website ? await checkSSL(website) : "No website";
-  const seo = website ? await getSEO(website) : "No website";
-  const safe = website ? await checkSafeBrowsing(website) : "Unknown";
-
-  const score = calculateScore({ ssl, seo });
-
-  res.json({
-    businessAge: whois.created
-      ? `Since ${whois.created.substring(0, 4)}`
-      : "Data not found",
-
-    websiteAge: whois.created
-      ? `${new Date().getFullYear() -
-          new Date(whois.created).getFullYear()} years`
-      : "Unknown",
-
-    ssl,
-    seo,
-    googleBusiness: "Demo: Listing may exist",
-    addressCheck: "Demo: Appears consistent",
-    onlinePresence: "Demo: Google, Facebook, Justdial",
-    websites: website ? [website] : [],
-    competitors: [
-      "competitor1.com",
-      "competitor2.com",
-      "competitor3.com"
-    ],
-    improvements: [
-      "Improve SEO score",
-      "Add Google Business Profile",
-      "Increase backlinks"
-    ],
-    safeBrowsing: safe,
-    finalScore: score
-  });
+// ✅ Health check
+app.get("/", (req, res) => {
+  res.send("Brand Trust Checker Backend Running");
 });
 
-app.listen(process.env.PORT, () =>
-  console.log(`Backend running on port ${process.env.PORT}`)
-);
+// 🔹 Shared analyze logic
+async function analyzeWebsite(website) {
+  const result = {
+    website,
+    websiteAge: "Unknown",
+    sslSecure: false,
+    seoScore: "N/A",
+    performanceScore: "N/A",
+    safeBrowsing: "Unknown",
+    finalScore: 0,
+  };
+
+  // 1️⃣ SSL check
+  result.sslSecure = website.startsWith("https://");
+
+  // 2️⃣ Google PageSpeed API
+  try {
+    const psiRes = await fetch(
+      `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${website}&strategy=mobile&key=${process.env.GOOGLE_API_KEY}`
+    );
+    const psiData = await psiRes.json();
+
+    const perf =
+      psiData?.lighthouseResult?.categories?.performance?.score;
+
+    if (perf !== undefined) {
+      result.performanceScore = Math.round(perf * 100);
+    }
+  } catch (e) {
+    console.error("PageSpeed error:", e.message);
+  }
+
+  // 3️⃣ Google Safe Browsing
+  try {
+    const sbRes = await fetch(
+      `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${process.env.GOOGLE_API_KEY}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          client: { clientId: "persuadify", clientVersion: "1.0" },
+          threatInfo: {
+            threatTypes: ["MALWARE", "SOCIAL_ENGINEERING"],
+            platformTypes: ["ANY_PLATFORM"],
+            threatEntryTypes: ["URL"],
+            threatEntries: [{ url: website }],
+          },
+        }),
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    const sbData = await sbRes.json();
+    result.safeBrowsing = sbData.matches ? "Unsafe" : "Safe";
+  } catch (e) {
+    console.error("Safe browsing error:", e.message);
+  }
+
+  // 4️⃣ Final score (basic logic)
+  let score = 0;
+  if (result.sslSecure) score += 25;
+  if (result.performanceScore !== "N/A") score += result.performanceScore / 4;
+  if (result.safeBrowsing === "Safe") score += 25;
+
+  result.finalScore = Math.min(100, Math.round(score));
+
+  return result;
+}
+
+// ✅ GET support (browser test)
+app.get("/analyze", async (req, res) => {
+  const website = req.query.url;
+  if (!website) {
+    return res.status(400).json({ error: "url parameter required" });
+  }
+
+  try {
+    const data = await analyzeWebsite(website);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Analysis failed" });
+  }
+});
+
+// ✅ POST support (frontend)
+app.post("/analyze", async (req, res) => {
+  const { website } = req.body;
+  if (!website) {
+    return res.status(400).json({ error: "website required" });
+  }
+
+  try {
+    const data = await analyzeWebsite(website);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Analysis failed" });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
